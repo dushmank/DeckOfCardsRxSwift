@@ -1,0 +1,6 @@
+framework module Pods_DeckOfCardsRxSwiftUITests {
+  umbrella header "Pods-DeckOfCardsRxSwiftUITests-umbrella.h"
+
+  export *
+  module * { export * }
+}

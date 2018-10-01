@@ -7,15 +7,20 @@
 //
 
 import UIKit
+import RxSwift
+import RxCocoa
 
 class PreviewViewController: UIViewController {
     
-    var cardImageModel: CardImageModel
+    //RxSwift Variables
+    var cardImageModelRx = Variable(CardImageModel(cardImage: CardImage(image: UIImage(), url: String(), value: String(), suit: String())))
+    
+    // RxSwift Dispose Bag
+    let bag = DisposeBag()
     
     // Intialize the preview controller with the selected card image, suit, value, url
-    
     init(cardImageModel: CardImageModel) {
-        self.cardImageModel = cardImageModel
+        self.cardImageModelRx.value = cardImageModel
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder aDecoder: NSCoder) {
@@ -24,44 +29,62 @@ class PreviewViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-
+        
         createNavBar()
         createLayout()
+        bindUI()
         addSwipeDown()
     }
     
-    // Customize the navigation bar
+    // BindUI when the CardImageModel is init
+    func bindUI() {
+        cardImageModelRx.asObservable()
+            .filter { value in
+                value.url != String()
+            }
+            .bind(onNext: { [weak self] value in
+                self?.navigationItem.title = "\(value.value.lowercased().capFirst()) of \(value.suit.lowercased().capFirst())"
+                if value.suit.lowercased() == "hearts" || value.suit.lowercased() == "diamonds" {
+                    self?.navigationController?.navigationBar.barTintColor = .red
+                } else {
+                    self?.navigationController?.navigationBar.barTintColor = .black
+                }
+                self?.cardPreviewView.cardPreviewModel = CardPreviewModel(cardPreview: CardPreview(image: value.image))
+                
+            })
+            .disposed(by: bag)
+        
+        // Dismiss Preview Controller when Done is tapped
+        backItem.rx.tap
+            .subscribe { [weak self] (_) in
+                self?.dismiss(animated: true, completion: nil)
+            }
+            .disposed(by: bag)
+        
+        // Dismiss Preview Controller when a swipe down is observed
+        swipeDown.rx.event
+            .subscribe{ [weak self] (_) in
+                self?.dismiss(animated: true, completion: nil)
+            }
+            .disposed(by: bag)
+    }
     
+    // Customize the navigation bar
+    var backItem = UIBarButtonItem()
     func createNavBar() {
         self.navigationController?.navigationBar.prefersLargeTitles = true
         self.navigationController?.navigationBar.isTranslucent = false
-        navigationItem.title = "\(cardImageModel.value.lowercased().capFirst()) of \(cardImageModel.suit.lowercased().capFirst())"
-        
-        if cardImageModel.suit.lowercased() == "hearts" || cardImageModel.suit.lowercased() == "diamonds" {
-            self.navigationController?.navigationBar.barTintColor = .red
-        } else {
-            self.navigationController?.navigationBar.barTintColor = .black
-        }
         self.navigationController?.navigationBar.largeTitleTextAttributes = [NSAttributedStringKey.foregroundColor: UIColor.white, NSAttributedStringKey.font: UIFont(name: ".SFUIDisplay-Bold", size: 36)!]
         self.navigationController?.navigationBar.titleTextAttributes = [NSAttributedStringKey.foregroundColor: UIColor.white, NSAttributedStringKey.font: UIFont(name: ".SFUIDisplay-Bold", size: 24)!]
-        let backItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(handleBackItem))
+        backItem = UIBarButtonItem(title: "Done", style: .done, target: self, action: nil)
         navigationController?.navigationBar.tintColor = .white
         navigationItem.leftBarButtonItem = backItem
     }
     
-    // When the back bar button item is pressed
-    
-    @objc func handleBackItem() {
-        self.dismiss(animated: true) {
-            self.cardImageModel = CardImageModel(cardImage: CardImage(image: UIImage(), url: String(), value: String(), suit: String()))
-        }
-    }
-    
+    var swipeDown = UISwipeGestureRecognizer()
     func addSwipeDown() {
-        let swipeDown = UISwipeGestureRecognizer(target: self, action: #selector(handleBackItem))
         swipeDown.direction = .down
         view.addGestureRecognizer(swipeDown)
-        
     }
     
     // Create Layout
@@ -71,8 +94,6 @@ class PreviewViewController: UIViewController {
         view.backgroundColor = .white
         
         view.addSubview(cardPreviewView)
-        let cardPreviewModel = CardPreviewModel(cardPreview: CardPreview(image: cardImageModel.image))
-        cardPreviewView.cardPreviewModel = cardPreviewModel
         let viewLeft = NSLayoutConstraint(item: cardPreviewView, attribute: .left, relatedBy: .equal, toItem: view, attribute: .left, multiplier: 1.0, constant: 0.0)
         let viewTop = NSLayoutConstraint(item: cardPreviewView, attribute: .top, relatedBy: .equal, toItem: view, attribute: .topMargin, multiplier: 1.0, constant: 0.0)
         let viewBottom = NSLayoutConstraint(item: cardPreviewView, attribute: .bottom, relatedBy: .equal, toItem: view, attribute: .bottomMargin, multiplier: 1.0, constant: 0.0)

@@ -8,26 +8,70 @@
 
 import Foundation
 import UIKit
+import RxSwift
 
 public var magmaOrange = UIColor(red: 241/255, green: 152/255, blue: 32/255, alpha: 1.0)
 
 class LaunchScreen: UIViewController {
     
+    // RxSwift Variable
+    var deck_id = Variable(String())
+    var animationComplete = Variable(Bool())
+    
+    // RxSwift Dispose Bag
+    let bag = DisposeBag()
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
+        observe_deck_animation()
         createDeck()
         createLayout()
         suiteAnimation()
     }
     
-    // Create a new deck and return deck id
-    func createDeck() {
-        DeckOfCardsApi.shared.createDeck()
+    func observe_deck_animation() {
+        Observable
+            .combineLatest(
+                deck_id.asObservable(),
+                animationComplete.asObservable(),
+                resultSelector: { [weak self] id, complete in
+                    if self?.checkObservables(id: id, animationComplete: complete) == true {
+                        self?.presentInitialVC(id: id)
+                    } else if complete == true {
+                        self?.suiteAnimation()
+                    }
+                })
+            .subscribe()
+            .disposed(by: bag)
     }
     
-    // Reference to intial view controller
-    let navController = UINavigationController(rootViewController: InitialViewController())
+    // Check if there is a deck_id and if the animation has completed
+    func checkObservables(id: String, animationComplete: Bool) -> Bool {
+        if id != String() && animationComplete == true {
+            return true
+        } else {
+            return false
+        }
+    }
+    
+    // Create a new deck and return deck id
+    func createDeck() {
+        DeckOfCardsApi.shared.createDeck { (newdeck, error) in
+            self.deck_id.value = newdeck!.deck_id
+        }
+    }
+    
+    // Present initial view controller
+    func presentInitialVC(id: String) {
+        // Reference to intial view controller
+        let initialVC = InitialViewController(deck_id: id)
+        let navController = UINavigationController(rootViewController: initialVC)
+        DispatchQueue.main.async(execute: {
+            navController.modalTransitionStyle = .coverVertical
+            self.present(navController, animated: true, completion: nil)
+        })
+    }
         
     // Create the layout of the launch screen view controller
     let diamondsView = UIView()
@@ -125,7 +169,6 @@ class LaunchScreen: UIViewController {
     
     // Animate Suites while loading deck
     func suiteAnimation() {
-        
         diamondsImageView.alpha = 0.0
         clubsImageView.alpha = 0.0
         heartsImageView.alpha = 0.0
@@ -144,18 +187,7 @@ class LaunchScreen: UIViewController {
             self.spadesImageView.alpha = 1.0
             self.view.backgroundColor = magmaOrange
         }) { (competion) in
-            // if deck is loaded, present initial view controller, if not, repeat the animation
-            
-            if deck_id != "" {
-                                
-                // Now with the deckID saved, present the intial view controller
-                DispatchQueue.main.async(execute: {
-                    self.navController.modalTransitionStyle = .coverVertical
-                    self.present(self.navController, animated: true, completion: nil)
-                })
-            } else {
-                self.suiteAnimation()
-            }
+            self.animationComplete.value = true
         }
     }
     

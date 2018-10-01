@@ -7,11 +7,25 @@
 //
 
 import UIKit
+import RxSwift
 
 
 class InitialViewController: UIViewController, UITableViewDelegate, UITableViewDataSource {
     
-    var cards = [CardViewModel]()
+    // RxSwift Variables
+    var drawnCards = Variable([])
+    var diamondsRx = Variable([])
+    var clubsRx = Variable([])
+    var heartsRx = Variable([])
+    var spadesRx = Variable([])
+    var cardImagesRx = Variable(CardImage(image: UIImage(), url: String(), value: String(), suit: String()))
+
+    
+    // RxSwift Dispose Bag
+    let bag = DisposeBag()
+    
+    // Variables
+    var deck_id = String()
     var diamonds = [CardViewModel]()
     var clubs = [CardViewModel]()
     var hearts = [CardViewModel]()
@@ -19,59 +33,88 @@ class InitialViewController: UIViewController, UITableViewDelegate, UITableViewD
     var sections = [SectionViewModel]()
     var cardImages = Dictionary<String, CardImageModel>()
     
+    // Intialize the initial controller with the NewDeck
+    init(deck_id: String) {
+        self.deck_id = deck_id
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
         createNavBar()
         createLayout()
+        observeCards()
         drawCards()
         
         sections.append(SectionViewModel(section: Section(section: "Diamonds", color: .red)))
         sections.append(SectionViewModel(section: Section(section: "Clubs", color: .black)))
         sections.append(SectionViewModel(section: Section(section: "Hearts", color: .red)))
         sections.append(SectionViewModel(section: Section(section: "Spades", color: .black)))
-                
     }
+    
+    func observeCards() {
+        // Observe cards being drawn, add array of [Cards]
+        drawnCards.asObservable()
+            .filter { value in
+                return value.count > 0
+            }
+            .subscribe(onNext: { value in
+                let sortedCards = DeckOfCardsApi.shared.sortCards(cards: value as! [Card])
+                
+                self.diamondsRx.value = sortedCards.diamond.map({return CardViewModel(card: $0)})
+                self.clubsRx.value = sortedCards.club.map({return CardViewModel(card: $0)})
+                self.heartsRx.value = sortedCards.heart.map({return CardViewModel(card: $0)})
+                self.spadesRx.value = sortedCards.spade.map({return CardViewModel(card: $0)})
+            })
+            .disposed(by: bag)
+        
+        // Observer all suits, and continue sorting before downloading
+        Observable.combineLatest(
+            self.diamondsRx.asObservable(),
+            self.clubsRx.asObservable(),
+            self.heartsRx.asObservable(),
+            self.spadesRx.asObservable(),
+            resultSelector: { [weak self] d, c, h, s in
+                if d.count > 0 && c.count > 0 && h.count > 0 && s.count > 0 {
+                        self?.diamonds = DeckOfCardsApi.shared.moveAceKing(cards: d as! [CardViewModel])
+                        self?.clubs = DeckOfCardsApi.shared.moveAceKing(cards: c as! [CardViewModel])
+                        self?.hearts = DeckOfCardsApi.shared.moveAceKing(cards: h as! [CardViewModel])
+                        self?.spades = DeckOfCardsApi.shared.moveAceKing(cards: s as! [CardViewModel])
+                        
+                        self?.cardsTableView.reloadData()
+                        
+                        // Download Card Images
+                        self?.downloadCards()
+                }
+        })
+        .subscribe()
+        .disposed(by: bag)
+        
+        // Observe downloaded card
+        cardImagesRx.asObservable()
+            .filter { value in
+                value.url != String()
+            }
+            .subscribe(onNext: { [weak self] value in
+             self?.cardImages["\(value.url)"] = CardImageModel(cardImage: value)
+             self?.cardsTableView.reloadData()
+            })
+            .disposed(by: bag)
+    }
+    
     // Draw all 52 cards from the shuffled deck, sort them by suit, then start downloading the card images
     func drawCards() {
-        
         DeckOfCardsApi.shared.drawCards(deckid: deck_id) { (cardsData, error) in
             if let error = error {
                 print("Error drawing cards", error)
                 return
             }
-            
-            let sortedCards = DeckOfCardsApi.shared.sortCards(cards: cardsData!.cards)
-            
-            self.diamonds = sortedCards.diamond.map({return CardViewModel(card: $0)})
-            self.clubs = sortedCards.club.map({return CardViewModel(card: $0)})
-            self.hearts = sortedCards.heart.map({return CardViewModel(card: $0)})
-            self.spades = sortedCards.spade.map({return CardViewModel(card: $0)})
-            
-            // Move Ace to the top
-            let diamondsAce = self.diamonds.remove(at: 9)
-            self.diamonds.insert(diamondsAce, at: 0)
-            let clubsAce = self.clubs.remove(at: 9)
-            self.clubs.insert(clubsAce, at: 0)
-            let heartsAce = self.hearts.remove(at: 9)
-            self.hearts.insert(heartsAce, at: 0)
-            let spadesAce = self.spades.remove(at: 9)
-            self.spades.insert(spadesAce, at: 0)
-            
-            // Move king to the bottom
-            let diamondsKing = self.diamonds.remove(at: 11)
-            self.diamonds.insert(diamondsKing, at: 12)
-            let clubsKing = self.clubs.remove(at: 11)
-            self.clubs.insert(clubsKing, at: 12)
-            let heartsKing = self.hearts.remove(at: 11)
-            self.hearts.insert(heartsKing, at: 12)
-            let spadesKing = self.spades.remove(at: 11)
-            self.spades.insert(spadesKing, at: 12)
-            
-            self.cardsTableView.reloadData()
-            
-            // Download Card Images
-            self.downloadCards()
+            self.drawnCards.value = cardsData!.cards
         }
     }
     
@@ -88,8 +131,7 @@ class InitialViewController: UIViewController, UITableViewDelegate, UITableViewD
                         return
                     }
                     DispatchQueue.main.async(execute: {
-                        self.cardImages["\(cardimage!.url)"] = CardImageModel(cardImage: cardimage!)
-                        self.cardsTableView.reloadData()
+                        self.cardImagesRx.value = cardimage!
                     })
                 })
             }
@@ -198,13 +240,13 @@ class InitialViewController: UIViewController, UITableViewDelegate, UITableViewD
         var cardImageModel: CardImageModel?
         
         if section == 0 {
-            cardImageModel = cardImages["\(self.diamonds[indexPath.row].image)"]
+            cardImageModel = cardImages["\(diamonds[indexPath.row].image)"]
         } else if section == 1 {
-            cardImageModel = cardImages["\(self.clubs[indexPath.row].image)"]
+            cardImageModel = cardImages["\(clubs[indexPath.row].image)"]
         } else if section == 2 {
-            cardImageModel = cardImages["\(self.hearts[indexPath.row].image)"]
+            cardImageModel = cardImages["\(hearts[indexPath.row].image)"]
         } else {
-            cardImageModel = cardImages["\(self.spades[indexPath.row].image)"]
+            cardImageModel = cardImages["\(spades[indexPath.row].image)"]
         }
         
         // present previewViewController
@@ -212,8 +254,5 @@ class InitialViewController: UIViewController, UITableViewDelegate, UITableViewD
         self.present(navController, animated: true, completion: nil)
 
     }
-    
-    
-
 
 }

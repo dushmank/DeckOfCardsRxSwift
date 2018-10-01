@@ -9,22 +9,11 @@
 import Foundation
 import UIKit
 
-public var deck_id = String()
-
 class DeckOfCardsApi: NSObject {
         static let shared = DeckOfCardsApi()
     
-    // Class for KVO, observing a change in deckid
-    class Deck: NSObject {
-        @objc dynamic var id: String
-        override init() {
-            id = ""
-            super.init()
-        }
-    }
-    
-    // Create a deck and save the deckID
-    func createDeck() {
+    // Create a deck and save the deck as a NewDeck
+    func createDeck(completion: @escaping (NewDeck?, Error?) -> ()) {
         let newDeckUrl = "https://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1"
         let url = URL(string: newDeckUrl)!
         let session = URLSession.shared
@@ -34,15 +23,9 @@ class DeckOfCardsApi: NSObject {
             guard error == nil else { return }
             guard let data = data else { return }
             do {
-                if let json = try JSONSerialization.jsonObject(with: data, options: .mutableContainers) as? [String: Any] {
-                    print(json)
-                    // KVO Implementation to monitor when deck has been changed
-                    let deck = Deck()
-                    let observation = deck.observe(\.id, options: .new) { (deck, change) in
-                        print("Deck has been found: \(deck.id)")
-                        deck_id = deck.id
-                    }
-                    deck.id = json["deck_id"] as! String
+                let deck = try JSONDecoder().decode(NewDeck.self, from: data)
+                DispatchQueue.main.async {
+                    completion(deck, nil)
                 }
             } catch let error {
                 print(error.localizedDescription)
@@ -97,6 +80,22 @@ class DeckOfCardsApi: NSObject {
                            heart: hearts.sorted(by: { ($0.value.localizedStandardCompare($1.value) == .orderedAscending)}),
                            spade: spades.sorted(by: { ($0.value.localizedStandardCompare($1.value) == .orderedAscending)})
                             )
+    }
+    
+    // Move ace to the top and king to the bottom
+    func moveAceKing(cards: [CardViewModel]) -> [CardViewModel] {
+        var suit = cards
+        let ace = suit.remove(at: 9)
+        suit.insert(ace, at: 0)
+        return moveKing(cards: suit)
+    }
+    
+    // Move king to the bottom
+    func moveKing(cards: [CardViewModel]) -> [CardViewModel] {
+        var suit = cards
+        let king = suit.remove(at: 11)
+        suit.insert(king, at: 12)
+        return suit
     }
     
 
